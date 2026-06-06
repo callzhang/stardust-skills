@@ -65,6 +65,20 @@
 看一下这个钉钉 OA 审批材料是否足够，给出审批意见
 ```
 
+## 权限和凭证
+
+不同 skill 的权限来源不一样：
+
+| Skill | 是否需要开放平台 AppKey/AppSecret |
+| --- | --- |
+| `dingdang-okr-export` | 当前不需要。它使用已登录 Chrome 中的叮当 OKR 页面，前提是当前浏览器账号本身有 OKR 查看权限。 |
+| `dingtalk-browser-export` | 当前不需要。它使用已登录 Chrome 中当前打开的 DingTalk/Alidocs 页面。 |
+| `dingtalk-minutes-access-request` | 当前不需要开放平台 key。它使用浏览器登录态申请或复查 AI 听记访问权限；正文读取走 `dws minutes`。 |
+| `dingtalk-knowledge-organize` | 通常需要可用的 `dws` 授权，部分旧脚本也支持读取本机 `~/.dingtalk-skills/config`。不要把配置提交到仓库。 |
+| `dingtalk-oa-approval` | 优先使用 `dws oa` 授权；只有在 DWS 详情缺字段且用户已授权时，才会用本机开放平台配置补读。 |
+
+`dingdang-okr-export` 目前不是纯 API 实现。未来如果 `dws okr` 或叮当 OKR 官方 API 可用，才需要根据对应 API 的企业权限、应用授权或服务开通方式配置凭证。
+
 ## 设计原则
 
 1. **dws 优先。** 文档、知识库、审批、AI 听记等钉钉原子能力优先使用 `dws`。

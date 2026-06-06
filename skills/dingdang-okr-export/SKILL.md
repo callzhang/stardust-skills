@@ -12,10 +12,11 @@ This skill is for 叮当OKR (`https://dingokr.dingteam.com/...`), not DingTalk O
 ## Operating Boundaries
 
 - Use the user's logged-in Chrome tab when the 叮当OKR page is already open.
+- Current Chrome-based export does not require DingTalk Open Platform AppKey/AppSecret. It requires the browser user to be logged in and authorized to view the target OKR data.
 - Do not inspect Chrome cookies, localStorage, browser profile files, passwords, or session stores.
 - Do not print tokens, secrets, cookies, or authorization headers.
 - Do not read local OKR/source files when the user asks to pull from 叮当 OKR; the source of truth is the online page/API visible through Chrome.
-- If a first-class `dws okr` command exists in the current environment, prefer it for API extraction. If not, use the Chrome UI workflow below.
+- If a first-class `dws okr` command exists in the current environment, prefer it for API extraction. In that mode, follow `dws` authentication and enterprise permission requirements. If not, use the Chrome UI workflow below.
 - If the user asks for scoring or review, first export the OKR workbook; then combine with allowed local memory/meeting material only if the user explicitly permits that additional context.
 
 ## Expected Output
