@@ -62,7 +62,7 @@ codex mcp login xiaoqing_interview --scopes mcp,interview_context_read,interview
 如果用户给出 AI 听记标题、听记链接或要求“用 dws 下载”，先读取 DWS skill：
 
 ```bash
-sed -n '1,220p' /Users/derek/.agents/skills/dws/SKILL.md
+sed -n '1,220p' ~/.agents/skills/dws/SKILL.md
 ```
 
 然后用 `dws minutes --help` 和产品参考确认命令。读取材料时至少拿到：
@@ -87,8 +87,17 @@ DWS 转写处理要求：
 当岗位涉及 AI 能力，或用户要求判断 AI 认知、AI 原生能力、AI 测试能力、RAG/Agent/大模型理解水平时，优先读取：
 
 ```bash
-sed -n '1,260p' "/Users/derek/Documents/memory/招聘 and 面试/如何识别AI认知水平.md"
+sed -n '1,260p' ~/Documents/memory/招聘\ and\ 面试/如何识别AI认知水平.md
 ```
+
+如果本地文档不存在或路径不适用于当前机器，不要停止，也不要假装已读到。改用 DWS 企业知识检索查找同类文档或内容：
+
+```bash
+dws mcp aisearch search_enterprise --json '{"queries":["如何识别AI认知水平 AI认知 RAG Agent 大模型 面试 评测"],"searchTypes":["document"],"timeRange":""}' --format json
+dws doc search --query "如何识别AI认知水平" --page-size 10 --format json
+```
+
+优先读取检索结果中标题、正文片段或路径最接近“如何识别AI认知水平”的文档。若 DWS 也找不到，明确说明该参考材料未读到，并改用岗位画像、候选人材料、AI 听记转写和面试官判断完成分析。
 
 使用该文档时要区分：
 
