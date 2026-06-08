@@ -10,7 +10,7 @@
 
 | Skill | 作用 |
 | --- | --- |
-| `dingdang-okr-export` | 从叮当 OKR 页面导出 OKR Excel：每人一个 tab，O/KR 分层，包含权重、进度、KR 进度说明和采集质量标记。 |
+| `dingtang-okr-review` | 从叮当 OKR 页面导出 OKR Excel，并按 CEO 视角在 KR 层级做证据核实、打分和超时折扣。 |
 | `dingtalk-browser-export` | 从已登录 Chrome 当前打开的 DingTalk/Alidocs 文档导出为 docx、PDF 或 Markdown，用作网页导出兜底。 |
 | `dingtalk-knowledge-organize` | 对钉钉知识库做盘点、分类、移动、重命名、去重和 CSV 审批式整理。底层操作优先走 `dws doc` / `dws wiki`。 |
 | `dingtalk-minutes-access-request` | 只处理钉钉 AI 听记权限申请、权限复查和阻塞诊断。听记正文、摘要、转写读取应走 `dws minutes`。 |
@@ -64,7 +64,7 @@
 安装后，在支持 skills 的 Agent 中直接提出任务即可。例如：
 
 ```text
-导出 2026 Q2 叮当 OKR，整理成每个人一个 tab 的 Excel
+导出 2026 Q2 叮当 OKR，整理成每个人一个 tab 的 Excel，并审核韩露的 KR 完成情况
 ```
 
 ```text
@@ -89,14 +89,14 @@
 
 | Skill | 是否需要开放平台 AppKey/AppSecret |
 | --- | --- |
-| `dingdang-okr-export` | 当前不需要。它使用已登录 Chrome 中的叮当 OKR 页面，前提是当前浏览器账号本身有 OKR 查看权限。 |
+| `dingtang-okr-review` | 当前导出不需要。它使用已登录 Chrome 中的叮当 OKR 页面，前提是当前浏览器账号本身有 OKR 查看权限。CEO review 阶段会按用户授权读取本地文件、`memory_recall` 和 `dws` 资料核实 KR。 |
 | `dingtalk-browser-export` | 当前不需要。它使用已登录 Chrome 中当前打开的 DingTalk/Alidocs 页面。 |
 | `dingtalk-minutes-access-request` | 当前不需要开放平台 key。它使用浏览器登录态申请或复查 AI 听记访问权限；正文读取走 `dws minutes`。 |
 | `dingtalk-knowledge-organize` | 通常需要可用的 `dws` 授权，部分旧脚本也支持读取本机 `~/.dingtalk-skills/config`。不要把配置提交到仓库。 |
 | `dingtalk-oa-approval` | 优先使用 `dws oa` 授权；只有在 DWS 详情缺字段且用户已授权时，才会用本机开放平台配置补读。 |
 | `stardust-interview` | 需要可用的 `xiaoqing_interview` MCP OAuth 授权；读取 AI 听记时还需要可用的 `dws minutes` 授权。 |
 
-`dingdang-okr-export` 目前不是纯 API 实现。未来如果 `dws okr` 或叮当 OKR 官方 API 可用，才需要根据对应 API 的企业权限、应用授权或服务开通方式配置凭证。
+`dingtang-okr-review` 的 OKR 导出目前不是纯 API 实现。未来如果 `dws okr` 或叮当 OKR 官方 API 可用，才需要根据对应 API 的企业权限、应用授权或服务开通方式配置凭证。
 
 ## 设计原则
 
@@ -112,7 +112,7 @@
 .
 ├── install.sh
 ├── skills/
-│   ├── dingdang-okr-export/
+│   ├── dingtang-okr-review/
 │   ├── dingtalk-browser-export/
 │   ├── dingtalk-knowledge-organize/
 │   ├── dingtalk-minutes-access-request/
