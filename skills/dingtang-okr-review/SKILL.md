@@ -1,6 +1,6 @@
 ---
 name: dingtang-okr-review
-description: Use when the user asks to export, review, audit, score, or summarize 叮当OKR/Dingdang OKR objectives, KR progress, CEO OKR review, people progress reports, Q2/Q3/Q4 OKR data, or asks to organize OKR data into Excel and evaluate KR completion with evidence.
+description: Use when the user asks to export, review, audit, score, or summarize 叮当OKR/Dingtang OKR objectives, KR progress, CEO OKR review, people progress reports, Q2/Q3/Q4 OKR data, or asks to organize OKR data into Excel and evaluate KR completion with evidence.
 ---
 
 # Dingtang OKR Review
