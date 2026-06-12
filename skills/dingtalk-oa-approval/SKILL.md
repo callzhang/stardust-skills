@@ -100,7 +100,7 @@ OpenAPI 审阅要点：
 - `form_component_values` 是表单字段的事实源，可能包含 DDBizSuite JSON、附件数组、链接、表格行等嵌套内容。
 - `operation_records` 是审批附言/评论事实源；审批留言里的补充信息必须纳入判断。
 - `tasks` 是审批动作和是否需要处理的事实源；只审阅、提醒、操作当前用户且 `task_status=RUNNING` 的任务。若待办列表仍显示但 OpenAPI 中当前 RUNNING 任务不属于当前用户，跳过该审批，不做完整材料审阅，也不要操作。
-- 附件里的 `fileId`/`spaceId` 可先用 `dws drive info/download` 读取；若返回 `forbidden.accessDenied` 或 `resource.notFound`，这不是材料不存在，而是“工具无权限/标识不可读”，必须继续按“OA 附件读取降级路径”检索同一文件，不得直接作为最终材料缺口。
+- 附件里的 `DDAttachment.fileId`/`spaceId` 先按“OA 附件读取降级路径”处理。不要把 `fileId` 直接当 `dws drive download --node` 的 dentryUuid，也不要把同名 `doc search` 结果直接当作附件正文；同名文档只能作为补充候选，必须和原附件文件名、正文关键信息或审批事实交叉验证。
 - 输出和日志中不得暴露 token、AppKey、AppSecret、cookie 或 OAuth code。
 - 在 `ceo-agent-service` 自动化里，API token、AppKey、AppSecret、cookie、OAuth code、签名下载 URL 不得写入 SQLite、日志、报告、DingTalk 回复、agent 输出或 `audit_summary`；只能记录“已使用授权 API 补读详情”这类事实。
 
@@ -147,27 +147,41 @@ https://aflow.dingtalk.com/dingtalk/mobile/query/formService?dd_share=false&show
 
 ### OA 附件读取降级路径
 
-OA 表单里的 `DDAttachment.fileId` 常是 12 位 OA/钉盘附件 ID，不一定是 `drive.download` 需要的 32 位 `dentryUuid`。`drive info/download` 失败时，按以下顺序继续读附件：
+OA 表单里的 `DDAttachment.fileId` 是审批附件 ID，不等同于 `dws drive download --node` 需要的 32 位 dentryUuid。审批附件优先走钉钉官方审批附件下载接口；只有官方下载失败时，才用文档搜索、企业检索或钉钉界面补读。
 
 1. 先从 OpenAPI 原始字段提取 `fileName`、`fileType`、`fileSize`、`fileId`、`spaceId`，保留这些信息用于比对。
-2. 尝试 `dws drive download --file-id <fileId> --space-id <spaceId> --format json`。如果报错里出现 32 位 dentryUuid，可再用该 dentryUuid 重试一次。
-3. 如果仍是 `forbidden.accessDenied`，改用文件名查找可读的钉钉文档节点：
+2. 优先调用官方审批附件下载接口获取真实附件：
+
+```bash
+# 使用新版 OpenAPI token；不要打印 token 或 downloadUri。
+curl -sS -X POST "https://api.dingtalk.com/v1.0/workflow/processInstances/spaces/files/urls/download" \
+  -H "x-acs-dingtalk-access-token: <accessToken>" \
+  -H "Content-Type: application/json" \
+  -d '{"processInstanceId":"<processInstanceId>","fileId":"<fileId>"}'
+```
+
+接口返回 `result.downloadUri` 后，用该临时地址下载二进制附件，再按 `fileType` 抽取正文：`docx` 解 `word/document.xml`，`xlsx` 读工作表 XML/sharedStrings，`pdf` 用 PDF 文本抽取，图片用 OCR 或人工查看。下载地址通常短期有效，且可能含签名；不得写入日志、SQLite、审批评论、DingTalk 回复或 agent 输出。
+
+在 `ceo-agent-service` 中，优先使用服务侧已封装的 `DwsClient.download_oa_process_attachment(processInstanceId, fileId)` 和 worker 注入的 `downloaded_attachment.text`，不要让子 agent 自己把 `fileId` 当 drive node 下载。
+
+3. 如果官方审批附件下载接口返回 `noPermission`、超时或网络错误，可重试一次；仍失败时，记录具体错误，并用文件名查找可读的钉钉文档节点作为候选：
 
 ```bash
 dws doc search --query "<fileName without extension or key title words>" --page-size 10 --format json
 dws mcp aisearch search_enterprise --json '{"queries":["<fileName> <审批标题> <关键业务词>"],"searchTypes":["document"],"timeRange":""}' --format json
 ```
 
-4. 如果应用已开通开放平台权限 `Storage.Dentry.Search`，可用官方存储搜索接口按附件名、空间或其他线索定位 dentry；若接口返回 `Forbidden.AccessDenied.AccessTokenPermissionDenied`，说明当前应用缺少该权限，继续走第 3 步的文档搜索和企业检索，不要把它当成附件不存在。
-5. 对搜索结果只接受能和原附件匹配的候选：文件名/标题高度一致，或正文 snippet 明确包含审批中的项目、客户、金额、主体、日期等关键字段。不要因为搜到相似文件就默认匹配。
-6. 搜到 `nodeId` 后按类型读取：
+4. 对搜索结果只接受能和原附件匹配的候选：文件名/标题高度一致，并且正文 snippet 明确包含审批中的项目、客户、金额、主体、日期等关键字段。不要因为搜到同名或相似文件就默认匹配；同名在线文档可能是模板、旧版本或另一个节点。
+5. 搜到 `nodeId` 后按类型读取：
    - `extension=adoc`：`dws doc read --node "<nodeId>" --format json`
    - `extension=axls`：`dws sheet list` 后用 `dws sheet range read`
    - `extension=docx|pptx|pdf|md` 且 `doc info/download` 可用：`dws doc download --node "<nodeId>" --format json`，再用本地工具抽取文本；若企业搜索已返回完整可判断 snippet，也可作为辅助证据，但合同/关键财务附件仍应尽量下载或读取全文。
-7. 如果 `doc search` 找不到，但 `aisearch search_enterprise` 能返回带完整正文片段的同名文件，可引用该检索结果继续判断，并在材料记录中说明“通过企业知识检索按文件名补读”。
-8. 只有 `drive`、官方存储搜索、`doc search`、`aisearch search_enterprise` 和已授权钉钉界面都无法读到时，才把附件列为“工具无法访问/材料缺口”。一旦列为材料缺口，本单不得建议通过；必须建议退回，要求申请人在审批评论或表单中补充可访问链接或重新上传可读文件。
+6. 如果 `doc search` 找不到，但 `aisearch search_enterprise` 能返回带完整正文片段的同名文件，可引用该检索结果继续判断，并在材料记录中说明“通过企业知识检索按文件名补读”。
+7. 如果应用已开通开放平台权限 `Storage.Dentry.Search`，可用官方存储搜索接口按附件名、空间或其他线索定位 dentry；若接口返回 `Forbidden.AccessDenied.AccessTokenPermissionDenied`，说明当前应用缺少该权限，继续走文档搜索、企业检索和钉钉界面，不要把它当成附件不存在。
+8. 只有官方审批附件下载、文档搜索、企业检索、官方存储搜索和已授权钉钉界面都无法读到时，才把附件列为“工具无法访问/材料缺口”。一旦列为材料缺口，本单不得建议通过；必须建议退回，要求申请人在审批评论或表单中补充可访问链接或重新上传可读文件。
 
 已验证案例：
+- OA 附件 `项目实施计划（第三曲线大模型解决方案）(2)(2)(1).docx` 不能用同名 `dws doc search` 结果替代；同名 Alidoc 节点曾是空模板。正确路径是用 OpenAPI 详情中的 `fileId=224596585916` 调官方审批附件下载接口，真实 docx 可读到项目范围、责任分工、T+30/T+60 里程碑、风险评估和交付物清单。
 - OA 附件 `专家网络平台一期工时评估.pdf` 的 `drive download` 因空间权限失败，但 `dws doc search --query "专家网络平台一期工时评估"` 可找到同名 Alidoc 节点并用 `dws doc read` 读取全文。
 - OA 附件 `背景_统一事实底稿模板.docx` 的 `drive download` 因空间权限失败，但 `dws doc search --query "背景_统一事实底稿模板"` 可找到同名 Alidoc 节点并读取转让定价事实底稿全文。
 - 智能合同正文 `0526星尘设备交接单.docx` 的 `drive download` 因空间权限失败，`doc search` 和企业检索也没有可信同名结果；钉钉客户端审批中心搜索 `Lynne` 后打开对应合同审批，在 `合同正文 -> 预览` 中可逐页读取 Word 正文和 AI 概览。

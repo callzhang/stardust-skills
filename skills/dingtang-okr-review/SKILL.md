@@ -1,6 +1,6 @@
 ---
 name: dingtang-okr-review
-description: Use when the user asks to export, review, audit, score, or summarize 叮当OKR/Dingtang OKR objectives, KR progress, CEO OKR review, people progress reports, Q2/Q3/Q4 OKR data, or asks to organize OKR data into Excel and evaluate KR completion with evidence.
+description: Use when the user asks to export, review, audit, score, or summarize 叮当OKR/Dingdang OKR objectives, KR progress, CEO OKR review, people progress reports, Q2/Q3/Q4 OKR data, or asks to organize OKR data into Excel and evaluate KR completion with evidence.
 ---
 
 # Dingtang OKR Review
@@ -14,13 +14,59 @@ This skill is for 叮当OKR (`https://dingokr.dingteam.com/...`), not DingTalk O
 
 ## Operating Boundaries
 
-- Use the user's logged-in Chrome tab when the 叮当OKR page is already open.
-- Current Chrome-based export does not require DingTalk Open Platform AppKey/AppSecret. It requires the browser user to be logged in and authorized to view the target OKR data.
+- For automated CEO OKR review runners, use a live 叮当OKR Web/API source for the `dingokr.dingteam.com` product. Do not default to Agoal just because the word OKR appears; this tenant has previously exported live OKR data from the Dingteam Web product while Agoal rule APIs returned no objective rule. Re-confirmed: even with all 10 Agoal permissions granted on the DingTalk app, `GET /v1.0/agoal/objectiveRuleLists/query` returns `success:true` with `totalCount:0` — the org uses 叮当OKR (蓝凌), not DingTalk-native Agoal, so the DingTalk Agoal API never has this data.
+- Configure the service with `CEO_OKR_SOURCE_KIND=dingteam_web` and `CEO_OKR_LIVE_SOURCE_COMMAND`. The command must accept `{user_id}` and `{period_label}` placeholders and return live JSON containing `processed.objectives` and `processed.okrRows`.
+- Three live-source commands are available (all return the same `processed.objectives` / `processed.okrRows`). Prefer the headless-browser source — it does NOT need an always-open Chrome tab:
+  - **Preferred — headless browser + token cache** (`dingteam_okr_browser_source.py`): a dedicated, persistent browser profile (default `~/.dingteam-okr-profile`) holds the DingTalk SSO session. One-time interactive login, then the service drives a headless Chromium itself to mint/refresh the session JWT; the JWT is cached (`<profile>/token_cache.json`, mode 600) and reused until ~5 min before its `exp` (~6h), so most fetches launch no browser at all.
+    - One-time (or when the DingTalk session expires): `python3 /Users/derek/.agents/skills/dingtang-okr-review/scripts/dingteam_okr_browser_source.py login` (opens a window; scan the DingTalk QR once).
+    - `CEO_OKR_LIVE_SOURCE_COMMAND=/Users/derek/.agents/skills/dingtang-okr-review/scripts/dingteam_okr_browser_source.py fetch --user-id {user_id} --period-label {period_label}`
+    - Requires `pip install playwright` (uses system Chrome via `channel="chrome"`). The dedicated profile is the source's OWN session store, not the user's Chrome profile; it never reads the user's Chrome cookie store and never prints the token.
+  - **Alternative — direct API via open tab** (`dingteam_okr_direct_source.py`): touches an already-authorized `dingokr.dingteam.com` Chrome tab once (osascript) to read the live session header, then fetches all OKR data via direct server-side HTTP.
+    `CEO_OKR_LIVE_SOURCE_COMMAND=/Users/derek/.agents/skills/dingtang-okr-review/scripts/dingteam_okr_direct_source.py --user-id {user_id} --period-label {period_label}`
+  - **Fallback — page injection** (`/Users/derek/Documents/Projects/ceo-agent-service/scripts/dingteam_okr_live_source.py`): injects an extraction script that uses the page's `webpackChunkallinone` module and polls a DOM result attribute. It auto-opens a `dingokr.dingteam.com` tab if none is present (reusing the Chrome login session), and — like the other sources — also fetches the 评论/进展 comments via `findCommentListV2` and merges them into `krDetailsUpdatesAggregated`.
+  - All three ultimately depend on a logged-in DingTalk session (the JWT is minted by 叮当OKR's DingTalk SSO and cannot be reproduced from stored AppKey/Secret without 叮当OKR's official OpenAPI). The headless source reduces this to a periodic background QR re-login when the session expires. On any failure they fail fast; do not fall back to stale local exports.
+- Use Agoal `agoal_1.0` only when the enterprise's OKR data is confirmed to be exposed through Agoal objective APIs. Required permissions normally include `Agoal.Objective.Read`, `Agoal.ObjectiveRule.Read`, `Agoal.Period.Read`, and `Agoal.ObjectiveProgress.Read`; org-performance plan/document APIs additionally require `Agoal.OrgPerfPlan.Read` / `Agoal.OrgPerfDoc.Read`.
+- For Agoal mode, use `CEO_OKR_SOURCE_KIND=agoal` and `CEO_OKR_OBJECTIVE_RULE_ID` when the enterprise has multiple Agoal rules. If the rule or period cannot be resolved unambiguously, fail fast and expose the configuration error.
+- Use the user's logged-in Chrome tab only for interactive workbook export or for fields not exposed by the API. Chrome export does not require DingTalk Open Platform AppKey/AppSecret; it requires the browser user to be logged in and authorized to view the target OKR data.
 - Do not inspect Chrome cookies, localStorage, browser profile files, passwords, or session stores.
 - Do not print tokens, secrets, cookies, or authorization headers.
-- Do not read local OKR/source files when the user asks to pull from 叮当 OKR; the source of truth is the online page/API visible through Chrome.
-- If a first-class `dws okr` command exists in the current environment, prefer it for API extraction. In that mode, follow `dws` authentication and enterprise permission requirements. If not, use the Chrome UI workflow below.
+- Do not read local OKR/source files when the user asks to pull from 叮当 OKR; the source of truth is live 叮当OKR Web/API data or the authorized online page.
 - For review/scoring, first export or load the OKR workbook, then use only user-authorized evidence sources: local files, `memory_recall`, and `dws` search/read commands.
+
+## Live API Source For Review
+
+For an automated OKR review request in this Dingteam Web tenant, collect live data in this order:
+
+1. Run `CEO_OKR_LIVE_SOURCE_COMMAND`, substituting `{user_id}` and `{period_label}`.
+2. Verify the returned JSON is live 叮当OKR data and contains `processed.objectives` and `processed.okrRows`.
+3. Each KR row must include parent O, O weight/progress, KR title, KR weight/progress, and `krDetailsUpdatesAggregated`.
+4. Pass the processed live JSON into the OKR review runner. If the command or API call fails, report that live OKR data is unavailable; do not silently fall back to old local exports.
+
+The preferred `dingteam_okr_direct_source.py` calls these private 叮当OKR endpoints (base `https://dingokr.dingteam.com`, all `POST`, reusing the captured session headers — `Authorization`, `X-Dingteam-Auth-App-Id`, `X-Space-Id`, etc.):
+
+| Step | Endpoint | Body |
+| --- | --- | --- |
+| period list | `/data/okr/person/period/list` | `{"userId"}` |
+| objectives + KR cells | `/data/okr/objective/showListView/v2` | `{"mainId","type":0,"search":{"userIds","pageNo","pageSize"}}` |
+| KR detail | `/data/okr/objective/findKrDetail` | `{"objId","krId"}` |
+| KR progress history | `/data/okr/objective/log/progressHistory` | `{"objectiveId","krId"}` |
+| 评论/进展 comments | `/data/okr/objective/findCommentList/v2` | `{"objectiveId","pageNo","pageSize","sort":false,"logTypeCells":[],"krId":"","commentId":""}` |
+
+CRITICAL for scoring: the numeric KR progress is often 0 even when there is real progress, because people write their progress as **comments/进展 (评论)** rather than moving the % slider. `findCommentList/v2` returns those records (`type==5` = 评论; each item has `richTextContent`, `creator`, `createAt`, and `krInfo.krId`/`krInfo.name` to map to a KR). The source fetches them per objective, maps each to its KR (by `krInfo.krId`, then by matching `krInfo.name` to the KR title), and merges them into `krDetailsUpdatesAggregated` (KR-level) and `objectiveCommentsAggregated` (objective-level). Do NOT score from the numeric progress alone — use these comment records as the primary progress evidence.
+
+It matches the requested period via the same normalization as the page (`2026 Q2` / `2026年2季度` / `2026年二季度` → `2026q2`), aggregates each KR's progress history into `krDetailsUpdatesAggregated` (`时间 | 进度变化 | 说明`, or `[未撰写进度]` when empty), and never prints the auth token. Unit tests live next to it: `scripts/test_dingteam_okr_direct_source.py`.
+
+For confirmed Agoal tenants, collect live data in this order:
+
+1. Resolve the Agoal objective rule.
+   - Prefer configured `CEO_OKR_OBJECTIVE_RULE_ID`.
+   - Otherwise query `GET /v1.0/agoal/objectiveRuleLists/query`; if exactly one rule is not available, stop and ask for the rule id.
+2. Resolve the period by querying `GET /v1.0/agoal/objectiveRules/periodLists?objectiveRuleId=...` and matching the requested period, for example `2026 Q2` to `2026年二季度` / `2026年2季度`.
+3. Query the user's objectives with `POST /v1.0/agoal/users/objectiveLists/query` using `dingUserId`, `objectiveRuleId`, and `periodIds`.
+4. For each objective, query detail with `GET /v1.0/agoal/objectives/details?objectiveId=...`.
+5. For each objective, query progress history with `GET /v1.0/agoal/objectives/progresses/lists?objectiveId=...`.
+6. Before invoking the OKR review runner, the worker must merge objective detail and progress data into a processed O/KR hierarchy: `processed.objectives` and `processed.okrRows`. Each KR row must include parent O, O weight/progress, KR title, KR weight/progress, and `krDetailsUpdatesAggregated`.
+7. Pass the processed live JSON into the OKR review runner. If any API call fails, report that live OKR data is unavailable; do not silently fall back to old local exports.
 
 ## Export Output
 
@@ -67,14 +113,14 @@ outputs/dingteam-okr-<period-slug>/dingteam_okr_<period-slug>_raw.json
    - Open or claim the 叮当OKR Chrome tab.
    - Navigate to `#/report` and select the target period if needed.
 
-2. Check whether `dws` has native OKR support:
+2. Check whether `dws` has native OKR support or use the OpenAPI source:
 
 ```bash
 dws --help
 dws okr --help
 ```
 
-If OKR is not listed as a service, continue with Chrome.
+If OKR is not listed as a service and the task is automated review, use the configured live source command. Use Agoal only after confirming the tenant's OKR data is exposed through Agoal APIs. If the task is interactive workbook export, continue with Chrome.
 
 3. In the 叮当OKR report page:
    - Use `推行驾驶舱`.
